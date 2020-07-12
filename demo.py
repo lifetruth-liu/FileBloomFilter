@@ -9,7 +9,7 @@ class BloomFilterWithFile:
     def __init__(self, key, size, hash_count, encoding="utf-8", cFile=True):
         self.key = key
         self.encoding = encoding
-        self.size = int(100 * 2 ** 20 * 8)
+        self.size = int(1 * 2 ** 20 * 8)
         self.fileSize = ceil(self.size / 8)
         self.hash_count = hash_count
         if cFile:
@@ -88,7 +88,7 @@ class BloomFilterWithFile:
  
  
 def timeTest():
-    bloom = BloomFilterWithFile("test", 10, 14)
+    bloom = BloomFilterWithFile("test", 0, 3)
     s = time.time()
     for i in range(100000):
         bloom.add(i)
