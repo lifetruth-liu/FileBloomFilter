@@ -64,7 +64,7 @@ class BloomFilterWithFile:
         :param maxExtend: 去重文件最大延伸倍率
 
         m = fabs(capacity * log(error_rate/100) / (log(2) ** 2))
-        k = log(2) * m
+        k = ceil(log(2) * m / n)
         """
         self.key = key
         self.encoding = encoding
