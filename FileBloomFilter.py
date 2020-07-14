@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+# @Time     : 2020/7/14 9:15
+# @Author   : 领悟悟悟
+# @Email    : lsz4123@163.com
+# @File     : fbf
+# @Software : PyCharm
+# @Comment  :
+
 from hashlib import md5
 from math import ceil, log, fabs
 
@@ -55,55 +63,55 @@ def make_hashfuncs(num_slices, num_bits):
 class BloomFilterWithFile:
     def __init__(self, key, capacity, error_rate=0.001, encoding="utf-8", cFile=True, maxExtend=8):
         """
-
         :param key:
         :param capacity: 数据容量
         :param error_rate: 错误率,单位%
         :param encoding:
         :param cFile:
         :param maxExtend: 去重文件最大延伸倍率
-
         m = fabs(capacity * log(error_rate/100) / (log(2) ** 2))
         k = ceil(log(2) * m / n)
         """
         self.key = key
         self.encoding = encoding
+        self.byte_storage_number = 8
 
         self.m, self.hash_count, self.preSize, self.size, self.fileSize = \
             self.calculator(capacity, error_rate, maxExtend)
         if cFile:
-            self.createBFFile(self.key, self.size)
+            self.createBFFile(self.key)
         self.BFFileObj = self.loadBFFileObj(self.key)
         self.make_hashes, self.hashfn = make_hashfuncs(self.hash_count, self.preSize)
+        self.count = 0
 
     def calculator(self, capacity, error_rate, maxExtend):
         m = ceil(fabs(capacity * log(error_rate / 100) / (log(2) ** 2)))
-        k = max([min([ceil(log(2) * m / capacity / 4), maxExtend]), 3])
+        k = max([min([ceil(log(2) * m / capacity / 5), maxExtend]), 3])
         preSize = m
-        fileSize = ceil(m * k / 7)
-        size = fileSize * 7
+        fileSize = ceil(m * k / self.byte_storage_number)
+        size = fileSize * self.byte_storage_number
         fileMemTypeSize, memType = self.calculatorFileSize(size)
         print("所需磁盘容量:", "%s%s"%(fileMemTypeSize, memType))
 
         return m, k, preSize, size, fileSize
 
     def calculatorFileSize(self, size):
-        fileSize = ceil(size / 1024 / 1024 / 7)
+        fileSize = ceil(size / 1024 / 1024 / self.byte_storage_number)
         if fileSize >= 1024:
             fileSize = ceil(fileSize / 1024)
             return fileSize, "G"
         return fileSize, "M"
 
-    def createBFFile(self, BFKey, size):
+    def createBFFile(self, BFKey):
         if os.path.isfile(self.key):
             os.remove(self.key)
-        f = open(BFKey, "w+b")
+        f = open(BFKey, "wb")
         f.truncate(self.fileSize)
         f.close()
 
     def loadBFFileObj(self, key, mode="r+b"):
         if "b" in mode:
-            f = open(key, mode)
+            f = open(key, mode, buffering=0)
         else:
             f = open(key, mode, encoding=self.encoding)
         return f
@@ -116,78 +124,73 @@ class BloomFilterWithFile:
         return int(md5(key.encode("utf-8")).hexdigest(), 16)
 
     def _add(self, f, hashIndex):
-        try:
-            # 计算偏移
-            offset = hashIndex // 7
-            index = hashIndex % 7
-
-            # 计算BF位数据
-            f.seek(offset)
-            d = f.read(1)
-            bin = '{:07b}'.format(0 if not d else ord(d))
-            bin = "0" + bin[:index] + "1" + bin[index + 1:]
-
-            # 修改BF位数据
-            if bin == "00001010":
-                charData = "\n".encode(encoding=self.encoding)
-            else:
-                charData = chr(int(bin, 2)).encode(encoding=self.encoding)
-            f.seek(offset)
-            f.write(charData)
-            f.flush()
-
-        except Exception as e:
-            print("0")
-
-    def add(self, item):
-        offset = 0
-        hashes = self.make_hashes(item)
-        for k in hashes:
-            self._add(self.BFFileObj, k + self.preSize)
-            offset += self.preSize
-            # offset += k
-
-        return self
-
-    def _contains(self, f, hashIndex):
         # 计算偏移
-        offset = hashIndex // 7
-        index = hashIndex % 7
+        offset = hashIndex // self.byte_storage_number
+        index = hashIndex % self.byte_storage_number
 
         # 计算BF位数据
         f.seek(offset)
         d = f.read(1)
-        bin = '{:07b}'.format(0 if not d else ord(d))
-        res = False if bin[index] == "0" else True
-        return res
+        bin = '{:08b}'.format(0 if not d else int.from_bytes(d, byteorder="big", signed=False))
+        if bin[index] == "1": return True
+
+        # 修改BF位数据
+        bin = bin[:index] + "1" + bin[index + 1:]
+        charData = int(bin, 2).to_bytes(1, "big", signed=False)
+        f.seek(offset)
+        f.write(charData)
+        # f.flush()
+        return False
+
+    def add(self, item):
+        offset = 0
+        hashes = self.make_hashes(item)
+        sign = True
+        for k in hashes:
+            if not self._add(self.BFFileObj, k + offset) and sign:
+                sign = False
+            offset += self.preSize
+            # offset += k
+        if not sign: self.count += 1
+        return self
+
+    def _contains(self, f, hashIndex):
+        # 计算偏移
+        offset = hashIndex // self.byte_storage_number
+        index = hashIndex % self.byte_storage_number
+
+        # 计算BF位数据
+        f.seek(offset)
+        d = f.read(1)
+        bin = '{:08b}'.format(0 if not d else int.from_bytes(d, byteorder="big", signed=False))
+        return False if bin[index] == "0" else True
 
     def __contains__(self, item):
         offset = 0
         hashes = self.make_hashes(item)
         for k in hashes:
-            if not self._contains(self.BFFileObj, k + self.preSize): return
+            if not self._contains(self.BFFileObj, k + offset): return
             offset += self.preSize
             # offset += k
-
         return True
 
 
 def timeTest():
     bloom = BloomFilterWithFile("test", 10000*1000, 0.01)
     s = time.time()
-    for i in range(150000):
+    for i in range(10000*150):
         bloom.add(i)
     print("插入耗时:", time.time() - s)
+    print("数据条目:", bloom.count)
 
     s = time.time()
     count = 0
     for i in range(10000*80, 10000*100):
         if i in bloom:
             count += 1
-    print("查询耗时:", time.time() - s)
+    print("\n查询耗时:", time.time() - s)
     print("存在个数:", count)
-
-
+    print("数据条目:", bloom.count)
 
 if __name__ == '__main__':
     timeTest()
